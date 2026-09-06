@@ -1,0 +1,8 @@
+requests>=2.31.0
+gql[requests]>=3.4.1
+graphql-core>=3.2.3
+pyyaml>=6.0.1
+openapi-spec-validator>=0.7.1
+jsonschema>=4.21.1
+click>=8.1.7
+rich>=13.7.0
