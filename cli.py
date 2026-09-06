@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from login import AutoLogin
 
 import click
 from rich.console import Console
@@ -124,6 +125,10 @@ def cli() -> None:
 @click.option("--no-ssl-verify", is_flag=True, default=False, help="Disable SSL certificate verification.")
 @click.option("--timeout", default=20, show_default=True, help="Request timeout in seconds.")
 @click.option("-v", "--verbose", is_flag=True, default=False, help="Enable debug logging.")
+@click.option("--user-a", default=None, help="Username/email for User A (auto-login).")
+@click.option("--pass-a", default=None, help="Password for User A (auto-login).")
+@click.option("--user-b", default=None, help="Username/email for User B (auto-login).")
+@click.option("--pass-b", default=None, help="Password for User B (auto-login).")
 def scan(
     target: str,
     spec: str,
@@ -136,6 +141,10 @@ def scan(
     no_ssl_verify: bool,
     timeout: int,
     verbose: bool,
+    user_a: Optional[str],
+    pass_a: Optional[str],
+    user_b: Optional[str],
+    pass_b: Optional[str],
 ) -> None:
     """
     Run a BOLA scan against a REST or GraphQL API.
@@ -186,8 +195,29 @@ def scan(
 
     console.print(f"[green]Found {len(operations)} operation(s).[/green]\n")
 
-    # --- Phase 2: Auth ---
+        # --- Phase 2: Auth (auto-login if credentials provided) ---
     try:
+        # Auto-login takes priority over manual tokens if credentials supplied
+        if user_a and pass_a:
+            console.print("[*] Auto-login: authenticating User A...")
+            auto = AutoLogin(base_url=target, verify_ssl=not no_ssl_verify)
+            result_a = auto.login(user_a, pass_a, "A")
+            if not result_a.success:
+                console.print(f"[bold red]Auto-login failed for User A:[/bold red] {result_a.error}")
+                sys.exit(1)
+            auth_a = result_a.auth_string
+            console.print(f"[green]User A authenticated:[/green] {auth_a[:40]}...")
+
+        if user_b and pass_b:
+            console.print("[*] Auto-login: authenticating User B...")
+            auto = AutoLogin(base_url=target, verify_ssl=not no_ssl_verify)
+            result_b = auto.login(user_b, pass_b, "B")
+            if not result_b.success:
+                console.print(f"[bold red]Auto-login failed for User B:[/bold red] {result_b.error}")
+                sys.exit(1)
+            auth_b = result_b.auth_string
+            console.print(f"[green]User B authenticated:[/green] {auth_b[:40]}...")
+
         console.print("[*] Initializing sessions...")
         auth_mgr = AuthManager(auth_a=auth_a, auth_b=auth_b, verify_ssl=not no_ssl_verify)
         auth_mgr.authenticate()
