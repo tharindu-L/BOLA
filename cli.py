@@ -110,8 +110,8 @@ def cli() -> None:
 @cli.command("scan")
 @click.option("--target", "-t", required=True, help="Base URL of the target API.")
 @click.option(
-    "--spec", "-s", required=True,
-    help="Path to OpenAPI spec file (JSON/YAML) or 'graphql' for introspection."
+    "--spec", "-s", default="discover",
+    help="Path to OpenAPI spec, 'graphql', or 'discover' for auto-discovery (default)."
 )
 @click.option("--auth-a", default=None, help="Auth credentials for User A. e.g. 'Bearer token123'")
 @click.option("--auth-b", default=None, help="Auth credentials for User B. e.g. 'Bearer token456'")
@@ -168,32 +168,7 @@ def scan(
     console.print(f"  Spec   : [yellow]{spec}[/yellow]")
     console.print(f"  ID-A   : [yellow]{id_a}[/yellow]  |  ID-B : [yellow]{id_b}[/yellow]\n")
 
-    # --- Phase 1: Crawl ---
-    operations: list[Operation] = []
-    graphql_endpoint: Optional[str] = None
 
-    try:
-        if _is_graphql_spec(spec):
-            graphql_endpoint = spec if spec.startswith("http") else target
-            if spec.lower() in ("graphql", "gql"):
-                graphql_endpoint = target
-            console.print("[*] Running GraphQL introspection...")
-            crawler = GraphQLCrawler(endpoint_url=graphql_endpoint)
-            operations = crawler.crawl()
-        else:
-            console.print("[*] Parsing OpenAPI specification...")
-            crawler = RESTCrawler(spec_path=spec)
-            operations = crawler.crawl()
-    except Exception as exc:
-        console.print(f"[bold red]Crawl failed:[/bold red] {exc}")
-        logger.error("Crawl failed: %s", exc, exc_info=verbose)
-        sys.exit(1)
-
-    if not operations:
-        console.print("[bold yellow]No operations found. Check your spec or target.[/bold yellow]")
-        sys.exit(0)
-
-    console.print(f"[green]Found {len(operations)} operation(s).[/green]\n")
 
         # --- Phase 2: Auth (auto-login if credentials provided) ---
     try:
@@ -225,6 +200,46 @@ def scan(
         console.print(f"[bold red]Authentication failed:[/bold red] {exc}")
         logger.error("Auth error: %s", exc, exc_info=verbose)
         sys.exit(1)
+
+
+
+            # --- Phase 1: Crawl ---
+    operations: list[Operation] = []
+    graphql_endpoint: Optional[str] = None
+
+    try:
+        if spec == "discover" or spec is None:
+            console.print("[*] Auto-discovery mode: crawling target for API endpoints...")
+            from discovery import EndpointDiscovery
+            discoverer = EndpointDiscovery(
+                base_url=target,
+                session=auth_mgr.session_a,
+            )
+            operations = discoverer.discover()
+
+        elif _is_graphql_spec(spec):
+            graphql_endpoint = spec if spec.startswith("http") else target
+            if spec.lower() in ("graphql", "gql"):
+                graphql_endpoint = target
+            console.print("[*] Running GraphQL introspection...")
+            crawler = GraphQLCrawler(endpoint_url=graphql_endpoint)
+            operations = crawler.crawl()
+
+        else:
+            console.print("[*] Parsing OpenAPI specification...")
+            crawler = RESTCrawler(spec_path=spec)
+            operations = crawler.crawl()
+
+    except Exception as exc:
+        console.print(f"[bold red]Crawl failed:[/bold red] {exc}")
+        logger.error("Crawl failed: %s", exc, exc_info=verbose)
+        sys.exit(1)
+
+    if not operations:
+        console.print("[bold yellow]No operations found. Check your spec or target.[/bold yellow]")
+        sys.exit(0)
+
+    console.print(f"[green]Found {len(operations)} operation(s).[/green]\n")
 
     # --- Phase 3: Execute ---
     try:
