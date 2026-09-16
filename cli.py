@@ -113,8 +113,8 @@ def cli() -> None:
     "--spec", "-s", required=True,
     help="Path to OpenAPI spec file (JSON/YAML) or 'graphql' for introspection."
 )
-@click.option("--auth-a", required=True, help="Auth credentials for User A. e.g. 'Bearer token123'")
-@click.option("--auth-b", required=True, help="Auth credentials for User B. e.g. 'Bearer token456'")
+@click.option("--auth-a", default=None, help="Auth credentials for User A. e.g. 'Bearer token123'")
+@click.option("--auth-b", default=None, help="Auth credentials for User B. e.g. 'Bearer token456'")
 @click.option("--id-a", default="1", show_default=True, help="Object ID belonging to User A.")
 @click.option("--id-b", default="2", show_default=True, help="Object ID belonging to User B.")
 @click.option(
@@ -132,8 +132,8 @@ def cli() -> None:
 def scan(
     target: str,
     spec: str,
-    auth_a: str,
-    auth_b: str,
+    auth_a: Optional[str],
+    auth_b: Optional[str],
     id_a: str,
     id_b: str,
     output: Optional[str],

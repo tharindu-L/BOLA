@@ -174,13 +174,36 @@ class GraphQLCrawler:
 
     def _run_introspection(self) -> dict:
         query = get_introspection_query()
+        endpoint = self.endpoint_url
+        if not endpoint.endswith("/graphql"):
+            endpoint = endpoint.rstrip("/") + "/graphql"
+
+        logger.debug("Introspection endpoint: %s", endpoint)
+
         resp = requests.post(
-            self.endpoint_url,
+            endpoint,
             json={"query": query},
-            headers=self.headers,
+            headers={
+                **self.headers,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
             timeout=30,
         )
+
+        logger.debug("Introspection status: %d", resp.status_code)
+        logger.debug("Introspection response length: %d", len(resp.text))
+        logger.debug("Introspection raw response: %s", resp.text[:500])
+
         resp.raise_for_status()
+
+        if not resp.text or not resp.text.strip():
+            raise RuntimeError(
+                f"Introspection returned empty response from {endpoint}. "
+                f"Status: {resp.status_code}. "
+                f"Check that GraphQL introspection is enabled on the target."
+            )
+
         data = resp.json()
         if "errors" in data:
             raise RuntimeError(f"Introspection errors: {data['errors']}")
