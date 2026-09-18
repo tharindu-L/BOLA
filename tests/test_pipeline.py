@@ -7,6 +7,7 @@ directly and drive engine substitution + analyzer gating logic.
 import json
 
 from crawler import Operation, RESTCrawler
+from discovery import EndpointDiscovery
 from engine import RequestEngine, ResponseRecord, OperationResult
 from analyzer import BOLAAnalyzer, VERDICT_CONFIRMED, VERDICT_POTENTIAL
 
@@ -275,3 +276,29 @@ def test_evidence_redacts_authorization_header():
     assert len(findings) == 1
     assert findings[0].evidence["request_a"]["headers"]["Authorization"] == "***REDACTED***"
     assert "super-secret-jwt" not in json.dumps(findings[0].evidence)
+
+
+# ---------------------------------------------------------------------------
+# Discovery: JS bundle route extraction must find *relative* path literals
+# (no leading slash), which is how SPA frameworks like Angular typically
+# build request URLs by concatenating a base-host constant with a bare
+# relative string (e.g. `environment.hostServer + "rest/user/login"`).
+# Regression test for a real scan against Juice Shop finding 0 routes.
+# ---------------------------------------------------------------------------
+
+def test_js_route_extraction_finds_relative_literals_in_call_context():
+    discoverer = EndpointDiscovery(base_url="http://target")
+    js_content = (
+        'login(t){return this.http.post(environment.hostServer+"rest/user/login",t)}'
+        'getUser(id){return this.http.get("api/Users/"+id)}'
+    )
+    routes = discoverer._extract_routes_from_js(js_content)
+    assert "/rest/user/login" in routes
+    assert "/api/Users/" in routes
+
+
+def test_js_route_extraction_ignores_static_assets():
+    discoverer = EndpointDiscovery(base_url="http://target")
+    js_content = 'fetch("assets/public/images/logo.png")'
+    routes = discoverer._extract_routes_from_js(js_content)
+    assert not any(r.endswith(".png") for r in routes)
