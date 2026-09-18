@@ -11,6 +11,8 @@ from typing import Optional
 
 import requests
 
+from identifiers import decode_jwt_payload, extract_self_id_from_claims
+
 logger = logging.getLogger("bola.auth")
 
 
@@ -31,6 +33,20 @@ class AuthConfig:
         if "=" in self.raw and not ":" in self.raw.split("=")[0]:
             return AuthType.COOKIE
         return AuthType.BASIC
+
+    def self_id(self) -> Optional[str]:
+        """Best-effort extraction of the authenticated user's own object id
+        from a Bearer JWT payload (no signature validation — read-only
+        introspection of a token the operator already holds). Used to seed
+        automatic ownership correlation when --id-a/--id-b are not given
+        explicitly."""
+        if self.detect_type() != AuthType.BEARER:
+            return None
+        token = self.raw.split(" ", 1)[1]
+        claims = decode_jwt_payload(token)
+        if not claims:
+            return None
+        return extract_self_id_from_claims(claims)
 
     def apply_to_session(self, session: requests.Session) -> None:
         auth_type = self.detect_type()
@@ -99,6 +115,16 @@ class AuthManager:
         if self._session_b is None:
             raise RuntimeError("Sessions not initialized. Call authenticate() first.")
         return self._session_b
+
+    @property
+    def self_id_a(self) -> Optional[str]:
+        """User A's own object id, harvested from their Bearer JWT if possible."""
+        return self.auth_a_config.self_id()
+
+    @property
+    def self_id_b(self) -> Optional[str]:
+        """User B's own object id, harvested from their Bearer JWT if possible."""
+        return self.auth_b_config.self_id()
 
     def close(self) -> None:
         if self._session_a:
