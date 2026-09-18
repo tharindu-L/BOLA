@@ -217,17 +217,36 @@ class EndpointDiscovery:
             js_urls.append(src)
         return js_urls
 
+    # A leading '${...}' in a backtick-quoted call argument is almost
+    # always a base-URL/host constant (environment.hostServer, this.API,
+    # `${baseUrl}`, ...) rather than part of the path itself.
+    _LEADING_TEMPLATE_VAR_RE = re.compile(r"^\$\{[^}]*\}")
+    # Any other '${...}' inside the literal is a dynamic path segment —
+    # most commonly an object id — normalized to the OpenAPI-style
+    # '{id}' placeholder so downstream substitution logic recognizes it.
+    _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
+    # A first path segment containing a dot followed by a short
+    # alphabetic run reads as a hostname (js.maxmind.com, api.ipinfodb.com,
+    # ipinfo.io) rather than an application resource — those are
+    # third-party endpoints referenced by the bundle, not this API's own.
+    _DOMAIN_FIRST_SEGMENT_RE = re.compile(r"^[^/]*\.[a-zA-Z]{2,}(?:[/.]|$)")
+
     def _normalize_js_route_candidate(self, raw: str) -> Optional[str]:
         """
         Bundled SPA code frequently builds request URLs by concatenating a
         base host with a *relative* path literal (e.g. Angular's
-        `environment.hostServer + 'rest/user/login'`), so the string found
-        in the bundle often has no leading slash at all. Normalize both
-        shapes to an absolute path so the API_ROOT_PREFIXES filter below
-        can recognize them either way, instead of silently dropping every
-        relative literal (which is the common case for SPA frameworks).
+        `environment.hostServer + 'rest/user/login'`, or a template
+        literal like `` `${this.hostServer}rest/basket/${id}` ``), so the
+        string found in the bundle often has no leading slash and may
+        contain JS interpolation syntax rather than a literal path.
+        Normalizes both relative-literal and template-literal shapes to a
+        clean absolute path, or returns None if the string clearly isn't
+        an application route (a third-party domain, a static asset, a
+        CSS/enum-like token, or a leftover non-path artifact).
         """
         candidate = raw.split("?")[0].split("#")[0]
+        candidate = self._LEADING_TEMPLATE_VAR_RE.sub("", candidate)
+        candidate = self._TEMPLATE_VAR_RE.sub("{id}", candidate)
         if candidate.startswith(("http://", "https://")):
             parsed = urlparse(candidate)
             candidate = parsed.path
@@ -237,14 +256,29 @@ class EndpointDiscovery:
             candidate = "/" + candidate
         # Reject anything that isn't a plausible URL path (no spaces, no
         # obvious non-path characters like '{' from JS object literals
-        # unless it's a route placeholder such as '/{id}').
-        if re.search(r"[\s<>\"'`]", candidate):
+        # unless it's a route placeholder such as '/{id}', and no leftover
+        # '$' from an unmatched/malformed template-literal fragment).
+        if re.search(r"[\s<>\"'`$]", candidate):
+            return None
+        # Reject stray '.'/'..' path segments (e.g. a "./redirect" picked
+        # up from a relative HTML/JS reference).
+        segments = [s for s in candidate.split("/") if s not in ("", ".", "..")]
+        if not segments:
+            return None
+        candidate = "/" + "/".join(segments)
+        # Reject third-party domains referenced inside the bundle.
+        if self._DOMAIN_FIRST_SEGMENT_RE.match(segments[0]):
             return None
         # Reject obvious static-asset paths — a generic extension check,
         # not an application-specific signature, that keeps the live-probe
         # candidate set from being swamped by image/font/stylesheet URLs
         # that happen to match the bare relative-path pattern.
-        if re.search(r"\.(png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|map|mp4|webp)$", candidate, re.IGNORECASE):
+        if re.search(r"\.(png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|map|mp4|webp|js)$", candidate, re.IGNORECASE):
+            return None
+        # Reject paths where every segment is purely numeric (e.g. "1/1"
+        # from a CSS aspect-ratio literal) — a real resource path needs at
+        # least one word-shaped segment.
+        if all(re.fullmatch(r"\d+|\{id\}", s) for s in segments):
             return None
         return candidate
 
@@ -258,7 +292,11 @@ class EndpointDiscovery:
         # SPA frameworks routinely concatenate a relative literal like
         # 'basket/' onto a base-URL constant defined elsewhere in the
         # bundle. Anything gathered here still has to pass a live JSON
-        # probe later, so over-collecting here is safe.
+        # probe later, so over-collecting here is safe. A single enum-like
+        # token (no real path separator, e.g. an NgRx action type string
+        # incidentally matched via a `.get(`/`url:` call unrelated to
+        # HTTP) is rejected by requiring at least one *internal* slash —
+        # i.e. more than just the leading one this function adds.
         prefix_gated_routes: set[str] = set()
         call_context_routes: set[str] = set()
 
@@ -276,7 +314,7 @@ class EndpointDiscovery:
                 candidates = match if isinstance(match, tuple) else (match,)
                 for m in candidates:
                     normalized = self._normalize_js_route_candidate(m)
-                    if normalized and normalized.count("/") >= 1:
+                    if normalized and normalized.count("/") >= 2:
                         call_context_routes.add(normalized)
 
         api_routes = {r for r in prefix_gated_routes if r.startswith(API_ROOT_PREFIXES)}

@@ -294,7 +294,7 @@ def test_js_route_extraction_finds_relative_literals_in_call_context():
     )
     routes = discoverer._extract_routes_from_js(js_content)
     assert "/rest/user/login" in routes
-    assert "/api/Users/" in routes
+    assert "/api/Users" in routes
 
 
 def test_js_route_extraction_ignores_static_assets():
@@ -302,3 +302,38 @@ def test_js_route_extraction_ignores_static_assets():
     js_content = 'fetch("assets/public/images/logo.png")'
     routes = discoverer._extract_routes_from_js(js_content)
     assert not any(r.endswith(".png") for r in routes)
+
+
+def test_js_route_extraction_handles_template_literal_with_id():
+    """Angular services frequently call http.get with a backtick template
+    literal like `${this.hostServer}rest/basket/${id}/checkout` — the
+    leading interpolation is the base-URL constant (strip it) and any
+    other interpolation is a dynamic segment (normalize to {id})."""
+    discoverer = EndpointDiscovery(base_url="http://target")
+    js_content = 'getBasket(id){return this.http.get(`${this.hostServer}rest/basket/${id}/checkout`)}'
+    routes = discoverer._extract_routes_from_js(js_content)
+    assert "/rest/basket/{id}/checkout" in routes
+
+
+def test_js_route_extraction_rejects_third_party_domains():
+    discoverer = EndpointDiscovery(base_url="http://target")
+    js_content = "this.http.get('//js.maxmind.com/js/apis/geoip2/v2.1/geoip2.js')"
+    routes = discoverer._extract_routes_from_js(js_content)
+    assert not any("maxmind" in r for r in routes)
+
+
+def test_js_route_extraction_rejects_non_route_get_calls():
+    """A `.get(` call is heavily overloaded (i18n lookups, Map.get, Redux
+    action-type strings) — a bare enum-like token with no real path
+    separator must not be treated as a route candidate."""
+    discoverer = EndpointDiscovery(base_url="http://target")
+    js_content = "this.translate.get('CREDIT_CARD_SAVED')"
+    routes = discoverer._extract_routes_from_js(js_content)
+    assert "/CREDIT_CARD_SAVED" not in routes
+
+
+def test_js_route_extraction_rejects_all_numeric_paths():
+    discoverer = EndpointDiscovery(base_url="http://target")
+    js_content = "url: '1/1'"
+    routes = discoverer._extract_routes_from_js(js_content)
+    assert "/1/1" not in routes
