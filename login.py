@@ -13,6 +13,8 @@ from urllib.parse import urljoin
 
 import requests
 
+from identifiers import extract_self_id_from_claims, decode_jwt_payload
+
 logger = logging.getLogger("bola.login")
 
 
@@ -23,6 +25,11 @@ class LoginResult:
     auth_string: str        # Ready to pass to --auth-a / --auth-b
     user_label: str
     error: Optional[str] = None
+    # Best-effort extraction of the logged-in user's own object id, from
+    # either the login response body or the issued JWT's claims. Feeds
+    # automatic ownership correlation so --id-a/--id-b don't have to be
+    # guessed by the operator.
+    self_id: Optional[str] = None
 
 
 class AutoLogin:
@@ -101,14 +108,24 @@ class AutoLogin:
                     if resp.status_code not in (200, 201):
                         continue
 
+                    try:
+                        body_json = resp.json()
+                    except Exception:
+                        body_json = None
+                    self_id = extract_self_id_from_claims(body_json) if body_json else None
+
                     # Try to extract Bearer token from JSON response body
                     token = self._extract_token_from_body(resp)
                     if token:
                         logger.info("Bearer token extracted from %s", url)
+                        if not self_id:
+                            claims = decode_jwt_payload(token)
+                            self_id = extract_self_id_from_claims(claims) if claims else None
                         return LoginResult(
                             success=True,
                             auth_string=f"Bearer {token}",
                             user_label="",
+                            self_id=self_id,
                         )
 
                     # Try to extract session cookie
@@ -119,6 +136,7 @@ class AutoLogin:
                             success=True,
                             auth_string=cookie,
                             user_label="",
+                            self_id=self_id,
                         )
 
                 except requests.RequestException as exc:

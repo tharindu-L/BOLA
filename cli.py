@@ -47,6 +47,7 @@ def _print_findings_table(findings: list[Finding]) -> None:
         box=box.ROUNDED,
         show_lines=True,
     )
+    table.add_column("Verdict", width=10)
     table.add_column("Severity", style="bold", width=8)
     table.add_column("API Type", width=8)
     table.add_column("Method", width=10)
@@ -56,7 +57,9 @@ def _print_findings_table(findings: list[Finding]) -> None:
 
     for f in findings:
         color = "red" if f.severity == "High" else "yellow"
+        verdict_color = "red" if f.verdict == "Confirmed" else "yellow"
         table.add_row(
+            f"[{verdict_color}]{f.verdict}[/{verdict_color}]",
             f"[{color}]{f.severity}[/{color}]",
             f.api_type.upper(),
             f.method,
@@ -77,16 +80,19 @@ def _build_json_report(
     return {
         "meta": {
             "tool": "BOLA Detection Framework",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "target": target,
             "spec": spec,
             "scan_timestamp": datetime.now(timezone.utc).isoformat(),
             "elapsed_seconds": round(elapsed_sec, 2),
             "total_findings": len(findings),
+            "confirmed": sum(1 for f in findings if f.verdict == "Confirmed"),
+            "potential": sum(1 for f in findings if f.verdict == "Potential"),
         },
         "findings": [
             {
                 "operation_id": f.operation_id,
+                "verdict": f.verdict,
                 "severity": f.severity,
                 "api_type": f.api_type,
                 "method": f.method,
@@ -115,8 +121,8 @@ def cli() -> None:
 )
 @click.option("--auth-a", default=None, help="Auth credentials for User A. e.g. 'Bearer token123'")
 @click.option("--auth-b", default=None, help="Auth credentials for User B. e.g. 'Bearer token456'")
-@click.option("--id-a", default="1", show_default=True, help="Object ID belonging to User A.")
-@click.option("--id-b", default="2", show_default=True, help="Object ID belonging to User B.")
+@click.option("--id-a", default=None, help="Object ID belonging to User A. Auto-detected from auth token when omitted.")
+@click.option("--id-b", default=None, help="Object ID belonging to User B. Auto-detected from auth token when omitted.")
 @click.option(
     "--output", "-o", default=None,
     help="Path to write JSON report. Prints to stdout if omitted."
@@ -124,6 +130,11 @@ def cli() -> None:
 @click.option("--threshold", default=0.85, show_default=True, help="Similarity threshold (0.0–1.0).")
 @click.option("--no-ssl-verify", is_flag=True, default=False, help="Disable SSL certificate verification.")
 @click.option("--timeout", default=20, show_default=True, help="Request timeout in seconds.")
+@click.option(
+    "--no-verify-writes", is_flag=True, default=False,
+    help="Skip the follow-up read that confirms whether a PUT/PATCH/DELETE actually changed state "
+         "(dry-run style — write findings are then reported as Potential only, never Confirmed)."
+)
 @click.option("-v", "--verbose", is_flag=True, default=False, help="Enable debug logging.")
 @click.option("--user-a", default=None, help="Username/email for User A (auto-login).")
 @click.option("--pass-a", default=None, help="Password for User A (auto-login).")
@@ -134,12 +145,13 @@ def scan(
     spec: str,
     auth_a: Optional[str],
     auth_b: Optional[str],
-    id_a: str,
-    id_b: str,
+    id_a: Optional[str],
+    id_b: Optional[str],
     output: Optional[str],
     threshold: float,
     no_ssl_verify: bool,
     timeout: int,
+    no_verify_writes: bool,
     verbose: bool,
     user_a: Optional[str],
     pass_a: Optional[str],
@@ -165,12 +177,11 @@ def scan(
 
     console.print("\n[bold cyan]BOLA Detection Framework[/bold cyan] — Starting scan...\n")
     console.print(f"  Target : [yellow]{target}[/yellow]")
-    console.print(f"  Spec   : [yellow]{spec}[/yellow]")
-    console.print(f"  ID-A   : [yellow]{id_a}[/yellow]  |  ID-B : [yellow]{id_b}[/yellow]\n")
+    console.print(f"  Spec   : [yellow]{spec}[/yellow]\n")
 
-
-
-        # --- Phase 2: Auth (auto-login if credentials provided) ---
+    # --- Phase 2: Auth (auto-login if credentials provided) ---
+    self_id_a: Optional[str] = None
+    self_id_b: Optional[str] = None
     try:
         # Auto-login takes priority over manual tokens if credentials supplied
         if user_a and pass_a:
@@ -181,6 +192,7 @@ def scan(
                 console.print(f"[bold red]Auto-login failed for User A:[/bold red] {result_a.error}")
                 sys.exit(1)
             auth_a = result_a.auth_string
+            self_id_a = result_a.self_id
             console.print(f"[green]User A authenticated:[/green] {auth_a[:40]}...")
 
         if user_b and pass_b:
@@ -191,19 +203,27 @@ def scan(
                 console.print(f"[bold red]Auto-login failed for User B:[/bold red] {result_b.error}")
                 sys.exit(1)
             auth_b = result_b.auth_string
+            self_id_b = result_b.self_id
             console.print(f"[green]User B authenticated:[/green] {auth_b[:40]}...")
 
         console.print("[*] Initializing sessions...")
         auth_mgr = AuthManager(auth_a=auth_a, auth_b=auth_b, verify_ssl=not no_ssl_verify)
         auth_mgr.authenticate()
+
+        # Ownership-correlation: prefer an id explicitly harvested from the
+        # login response/JWT over the operator-supplied value; fall back to
+        # a plain default only when nothing else is known.
+        if id_a is None:
+            id_a = self_id_a or auth_mgr.self_id_a or "1"
+        if id_b is None:
+            id_b = self_id_b or auth_mgr.self_id_b or "2"
+        console.print(f"  ID-A   : [yellow]{id_a}[/yellow]  |  ID-B : [yellow]{id_b}[/yellow]\n")
     except Exception as exc:
         console.print(f"[bold red]Authentication failed:[/bold red] {exc}")
         logger.error("Auth error: %s", exc, exc_info=verbose)
         sys.exit(1)
 
-
-
-            # --- Phase 1: Crawl ---
+    # --- Phase 1: Crawl ---
     operations: list[Operation] = []
     graphql_endpoint: Optional[str] = None
 
@@ -251,6 +271,7 @@ def scan(
             object_id_a=id_a,
             object_id_b=id_b,
             timeout=timeout,
+            verify_writes=not no_verify_writes,
         )
         results = engine.execute(operations, graphql_endpoint=graphql_endpoint)
     except Exception as exc:

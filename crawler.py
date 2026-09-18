@@ -2,6 +2,10 @@
 crawler.py — API Crawler Module
 Parses OpenAPI 3.x specs (REST) and GraphQL introspection schemas.
 Produces a unified list of Operation objects.
+
+Object-identifier detection uses the generic, structural engine in
+identifiers.py (name-shape + value-shape), not literal per-application
+field names, so it generalizes to unseen APIs.
 """
 
 import json
@@ -15,6 +19,11 @@ import yaml
 from graphql import build_client_schema, get_introspection_query, parse as gql_parse
 from graphql.type import GraphQLObjectType, GraphQLNonNull, GraphQLList, GraphQLScalarType, GraphQLEnumType
 from openapi_spec_validator import validate
+
+from identifiers import (
+    name_matches_identifier,
+    find_body_identifiers,
+)
 
 logger = logging.getLogger("bola.crawler")
 
@@ -34,10 +43,22 @@ class Operation:
     parameters: list[dict] = field(default_factory=list)
     request_body_schema: Optional[dict] = None
     sample_payload: Optional[dict] = None
-    object_identifier_extraction_rule: Optional[dict] = None  # {"location": "path|query|body", "name": "id"}
+    # Primary/legacy single rule, kept for simple callers: {"location": "path|query|body", "name": "id"}
+    object_identifier_extraction_rule: Optional[dict] = None
+    # Full set of identifier-shaped locations found for this operation, including
+    # nested body paths: [{"location": "path|query|body", "name": str, "path": tuple|None}]
+    object_identifier_rules: list[dict] = field(default_factory=list)
     graphql_query_string: Optional[str] = None
     graphql_variables: Optional[dict] = None
+    # GraphQL: identifier-shaped locations nested inside input-object variables,
+    # as (variable_name, path_within_variable_value)
+    graphql_nested_identifier_paths: list[dict] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
+    # True for operations that mutate/delete state (used to gate write verification).
+    is_write: bool = False
+
+
+WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE", "MUTATION"})
 
 
 class RESTCrawler:
@@ -45,11 +66,6 @@ class RESTCrawler:
     Parses an OpenAPI 3.x specification file (JSON or YAML).
     Extracts all endpoints as Operation objects.
     """
-
-    OBJECT_ID_PATTERNS = (
-        "id", "user_id", "order_id", "basket_id", "account_id",
-        "product_id", "item_id", "record_id", "uuid", "slug",
-    )
 
     def __init__(self, spec_path: str):
         self.spec_path = Path(spec_path)
@@ -79,14 +95,26 @@ class RESTCrawler:
             return resolved
         return obj
 
-    def _extract_id_rule(self, parameters: list[dict]) -> Optional[dict]:
+    def _extract_param_id_rules(self, parameters: list[dict]) -> list[dict]:
+        """
+        Path parameters are, by REST convention, almost always the object
+        identifier for that resource position regardless of what the
+        author happened to name them (/books/v1/{book_title},
+        /users/v1/{username}, /resource/{id} are all structurally the
+        same shape) — so every path parameter is treated as a candidate.
+        Query parameters are far more often unrelated filters/pagination,
+        so those still require an identifier-shaped name to qualify.
+        """
+        rules = []
         for param in parameters:
             p = self._resolve_ref(param)
-            name = p.get("name", "").lower()
+            name = p.get("name", "")
             location = p.get("in", "")
-            if any(pat in name for pat in self.OBJECT_ID_PATTERNS):
-                return {"location": location, "name": p.get("name")}
-        return None
+            if location == "path":
+                rules.append({"location": location, "name": name})
+            elif location == "query" and name_matches_identifier(name):
+                rules.append({"location": location, "name": name})
+        return rules
 
     def _build_sample_payload(self, schema: Optional[dict]) -> Optional[dict]:
         if not schema:
@@ -97,17 +125,32 @@ class RESTCrawler:
         for prop_name, prop_schema in props.items():
             prop_schema = self._resolve_ref(prop_schema)
             ptype = prop_schema.get("type", "string")
-            if ptype == "string":
-                sample[prop_name] = "test_value"
+            example = prop_schema.get("example")
+            if example is not None:
+                sample[prop_name] = example
+            elif ptype == "string":
+                # Identifier-shaped properties get an id-like placeholder so
+                # the request engine has something structurally valid to
+                # substitute; everything else gets a generic filler value.
+                sample[prop_name] = "1" if name_matches_identifier(prop_name) else "test_value"
             elif ptype == "integer":
                 sample[prop_name] = 1
             elif ptype == "boolean":
                 sample[prop_name] = True
             elif ptype == "array":
                 sample[prop_name] = []
+            elif ptype == "object":
+                nested = self._build_sample_payload(prop_schema)
+                sample[prop_name] = nested or {}
             else:
                 sample[prop_name] = None
         return sample or None
+
+    def _extract_body_id_rules(self, sample_payload: Optional[dict]) -> list[dict]:
+        if not sample_payload:
+            return []
+        refs = find_body_identifiers(sample_payload)
+        return [{"location": "body", "name": r.name, "path": r.path} for r in refs]
 
     def crawl(self) -> list[Operation]:
         self.spec = self._load_spec()
@@ -139,7 +182,13 @@ class RESTCrawler:
                     sample_payload = self._build_sample_payload(body_schema)
 
                 op_id = op_data.get("operationId") or f"{method.upper()}:{path}"
-                id_rule = self._extract_id_rule(resolved_params)
+                param_rules = self._extract_param_id_rules(resolved_params)
+                body_rules = self._extract_body_id_rules(sample_payload)
+                all_rules = param_rules + body_rules
+                # Prefer a path-located rule as the "primary" one (most common
+                # BOLA shape) for callers that only care about a single rule.
+                primary = next((r for r in all_rules if r["location"] == "path"), None) \
+                    or (all_rules[0] if all_rules else None)
 
                 op = Operation(
                     operation_id=op_id,
@@ -149,11 +198,13 @@ class RESTCrawler:
                     parameters=resolved_params,
                     request_body_schema=body_schema,
                     sample_payload=sample_payload,
-                    object_identifier_extraction_rule=id_rule,
+                    object_identifier_extraction_rule=primary,
+                    object_identifier_rules=all_rules,
                     tags=op_data.get("tags", []),
+                    is_write=method.upper() in WRITE_METHODS,
                 )
                 operations.append(op)
-                logger.debug("REST op: %s %s", method.upper(), path)
+                logger.debug("REST op: %s %s (rules=%d)", method.upper(), path, len(all_rules))
 
         logger.info("REST crawl complete: %d operations found.", len(operations))
         return operations
@@ -165,8 +216,6 @@ class GraphQLCrawler:
     Parses the schema and produces Operation objects for each
     Query and Mutation field, including nested selection sets.
     """
-
-    OBJECT_ID_ARG_PATTERNS = ("id", "userId", "orderId", "vehicleId", "uuid")
 
     def __init__(self, endpoint_url: str, headers: Optional[dict] = None):
         self.endpoint_url = endpoint_url
@@ -193,7 +242,6 @@ class GraphQLCrawler:
 
         logger.debug("Introspection status: %d", resp.status_code)
         logger.debug("Introspection response length: %d", len(resp.text))
-        logger.debug("Introspection raw response: %s", resp.text[:500])
 
         resp.raise_for_status()
 
@@ -231,16 +279,57 @@ class GraphQLCrawler:
                 fields_str_parts.append(fname)
         return " ".join(fields_str_parts)
 
-    def _extract_id_rule(self, args: dict) -> Optional[dict]:
-        for arg_name in args:
-            if any(pat.lower() in arg_name.lower() for pat in self.OBJECT_ID_ARG_PATTERNS):
-                return {"location": "variable", "name": arg_name}
-        return None
+    def _extract_arg_id_rules(self, args: dict) -> list[dict]:
+        """Every scalar argument that is identifier-shaped by name."""
+        rules = []
+        for arg_name, arg_def in args.items():
+            named = self._get_named_type(arg_def.type)
+            if isinstance(named, GraphQLObjectType):
+                continue  # handled by _extract_nested_input_id_paths
+            if name_matches_identifier(arg_name):
+                rules.append({"location": "variable", "name": arg_name})
+        return rules
+
+    def _extract_nested_input_id_paths(self, args: dict) -> list[dict]:
+        """Scan input-object arguments (e.g. mutation(input: {id, ...})) for
+        identifier-shaped nested fields, so mutations that wrap the object
+        id inside an input type are still substitutable."""
+        nested: list[dict] = []
+        for arg_name, arg_def in args.items():
+            named = self._get_named_type(arg_def.type)
+            fields_attr = getattr(named, "fields", None)
+            if not fields_attr:
+                continue
+            for field_name, field_def in fields_attr.items():
+                inner = self._get_named_type(field_def.type)
+                if isinstance(inner, GraphQLObjectType):
+                    continue
+                if name_matches_identifier(field_name):
+                    nested.append({"variable": arg_name, "field": field_name})
+        return nested
 
     def _build_gql_variables(self, args: dict) -> dict:
         variables: dict = {}
         for arg_name, arg_def in args.items():
             named = self._get_named_type(arg_def.type)
+            fields_attr = getattr(named, "fields", None)
+            if fields_attr:
+                # Input object type — build a minimal nested sample so
+                # identifier-shaped nested fields exist to be substituted.
+                inner_val: dict = {}
+                for fname, fdef in fields_attr.items():
+                    inner_named = self._get_named_type(fdef.type)
+                    inner_type_name = getattr(inner_named, "name", "String")
+                    if "Int" in inner_type_name:
+                        inner_val[fname] = 1
+                    elif "Boolean" in inner_type_name:
+                        inner_val[fname] = True
+                    elif name_matches_identifier(fname):
+                        inner_val[fname] = "1"
+                    else:
+                        inner_val[fname] = "test_value"
+                variables[arg_name] = inner_val
+                continue
             type_name = getattr(named, "name", "String")
             if "Int" in type_name:
                 variables[arg_name] = 1
@@ -286,7 +375,9 @@ class GraphQLCrawler:
                     f"}}"
                 )
                 variables = self._build_gql_variables(args)
-                id_rule = self._extract_id_rule(args)
+                arg_rules = self._extract_arg_id_rules(args)
+                nested_rules = self._extract_nested_input_id_paths(args)
+                primary = arg_rules[0] if arg_rules else None
                 op_id = f"{method_label}:{field_name}"
 
                 op = Operation(
@@ -297,10 +388,16 @@ class GraphQLCrawler:
                     parameters=[{"name": k, "in": "variable"} for k in args],
                     graphql_query_string=query_string,
                     graphql_variables=variables,
-                    object_identifier_extraction_rule=id_rule,
+                    object_identifier_extraction_rule=primary,
+                    object_identifier_rules=arg_rules,
+                    graphql_nested_identifier_paths=nested_rules,
+                    is_write=method_label == "MUTATION",
                 )
                 operations.append(op)
-                logger.debug("GraphQL op: %s %s", method_label, field_name)
+                logger.debug(
+                    "GraphQL op: %s %s (arg_rules=%d nested_rules=%d)",
+                    method_label, field_name, len(arg_rules), len(nested_rules),
+                )
 
         logger.info("GraphQL crawl complete: %d operations found.", len(operations))
         return operations
