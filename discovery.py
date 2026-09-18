@@ -28,7 +28,6 @@ import requests
 from bs4 import BeautifulSoup
 
 from crawler import Operation, RESTCrawler
-from identifiers import name_matches_identifier
 
 logger = logging.getLogger("bola.discovery")
 
@@ -45,14 +44,22 @@ API_DOC_CANDIDATES = [
 API_ROOT_PREFIXES = ("/api", "/rest", "/v1", "/v2", "/v3", "/graphql")
 
 JS_ROUTE_PATTERNS = [
-    r'["\']/(api|rest|v\d+)/[\w/{}]+["\']',
-    r'axios\.(get|post|put|delete|patch)\(["\']([^"\']+)["\']',
-    r'fetch\(["\']([^"\']+)["\']',
-    r'\.get\(["\']([^"\']+)["\']',
-    r'\.post\(["\']([^"\']+)["\']',
-    r'path:\s*["\']([^"\']+)["\']',
-    r'url:\s*["\']([^"\']+)["\']',
-    r'endpoint:\s*["\']([^"\']+)["\']',
+    # Index 0: "bare literal" — no call context, so it's restricted to
+    # strings already shaped like an API root path (see _extract_routes_from_js).
+    r'["\']/?(api|rest|v\d+)/[\w/{}\-]+["\']',
+    # Everything below is scoped to an explicit HTTP-call/config context
+    # (fetch/axios/.get(/.post(/url:/path:/endpoint:), or — as a last
+    # resort for minified bundles where the call site itself is mangled —
+    # any quoted relative multi-segment path literal. All of these are
+    # only accepted as candidates; a live JSON probe decides the rest.
+    r'axios\.(get|post|put|delete|patch)\(["\'`]([^"\'`]+)["\'`]',
+    r'fetch\(["\'`]([^"\'`]+)["\'`]',
+    r'\.get\(["\'`]([^"\'`]+)["\'`]',
+    r'\.post\(["\'`]([^"\'`]+)["\'`]',
+    r'path:\s*["\'`]([^"\'`]+)["\'`]',
+    r'url:\s*["\'`]([^"\'`]+)["\'`]',
+    r'endpoint:\s*["\'`]([^"\'`]+)["\'`]',
+    r'["\']([a-zA-Z][a-zA-Z0-9_\-]{1,30}/[a-zA-Z0-9_\-/{}]{1,60})["\']',
 ]
 
 HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
@@ -210,19 +217,70 @@ class EndpointDiscovery:
             js_urls.append(src)
         return js_urls
 
+    def _normalize_js_route_candidate(self, raw: str) -> Optional[str]:
+        """
+        Bundled SPA code frequently builds request URLs by concatenating a
+        base host with a *relative* path literal (e.g. Angular's
+        `environment.hostServer + 'rest/user/login'`), so the string found
+        in the bundle often has no leading slash at all. Normalize both
+        shapes to an absolute path so the API_ROOT_PREFIXES filter below
+        can recognize them either way, instead of silently dropping every
+        relative literal (which is the common case for SPA frameworks).
+        """
+        candidate = raw.split("?")[0].split("#")[0]
+        if candidate.startswith(("http://", "https://")):
+            parsed = urlparse(candidate)
+            candidate = parsed.path
+        if not candidate or len(candidate) < 3:
+            return None
+        if not candidate.startswith("/"):
+            candidate = "/" + candidate
+        # Reject anything that isn't a plausible URL path (no spaces, no
+        # obvious non-path characters like '{' from JS object literals
+        # unless it's a route placeholder such as '/{id}').
+        if re.search(r"[\s<>\"'`]", candidate):
+            return None
+        # Reject obvious static-asset paths — a generic extension check,
+        # not an application-specific signature, that keeps the live-probe
+        # candidate set from being swamped by image/font/stylesheet URLs
+        # that happen to match the bare relative-path pattern.
+        if re.search(r"\.(png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|map|mp4|webp)$", candidate, re.IGNORECASE):
+            return None
+        return candidate
+
     def _extract_routes_from_js(self, js_content: str) -> set[str]:
-        routes: set[str] = set()
-        for pattern in JS_ROUTE_PATTERNS:
+        # The first pattern is a "bare literal" scan with no surrounding
+        # call context, so it's restricted to strings that already look
+        # like an API root path. The rest of the patterns only match
+        # inside an explicit HTTP-call context (fetch/axios/.get(/.post(/
+        # url:/path:/endpoint:), which is itself strong evidence the
+        # string is a request path even without a leading "/api"/"/rest" —
+        # SPA frameworks routinely concatenate a relative literal like
+        # 'basket/' onto a base-URL constant defined elsewhere in the
+        # bundle. Anything gathered here still has to pass a live JSON
+        # probe later, so over-collecting here is safe.
+        prefix_gated_routes: set[str] = set()
+        call_context_routes: set[str] = set()
+
+        gated_matches = re.findall(JS_ROUTE_PATTERNS[0], js_content)
+        for match in gated_matches:
+            candidates = match if isinstance(match, tuple) else (match,)
+            for m in candidates:
+                normalized = self._normalize_js_route_candidate(m)
+                if normalized:
+                    prefix_gated_routes.add(normalized)
+
+        for pattern in JS_ROUTE_PATTERNS[1:]:
             matches = re.findall(pattern, js_content)
             for match in matches:
-                if isinstance(match, tuple):
-                    for m in match:
-                        if m.startswith("/") and len(m) > 2:
-                            routes.add(m.split("?")[0])
-                elif isinstance(match, str):
-                    if match.startswith("/") and len(match) > 2:
-                        routes.add(match.split("?")[0])
-        api_routes = {r for r in routes if r.startswith(API_ROOT_PREFIXES)}
+                candidates = match if isinstance(match, tuple) else (match,)
+                for m in candidates:
+                    normalized = self._normalize_js_route_candidate(m)
+                    if normalized and normalized.count("/") >= 1:
+                        call_context_routes.add(normalized)
+
+        api_routes = {r for r in prefix_gated_routes if r.startswith(API_ROOT_PREFIXES)}
+        api_routes |= call_context_routes
         return api_routes
 
     def _discover_from_html(self) -> set[str]:
@@ -365,12 +423,25 @@ class EndpointDiscovery:
         logger.info("Sitemap/robots scan found %d paths.", len(sitemap_paths))
         all_paths.update(sitemap_paths)
 
-        api_paths = {p for p in all_paths if p.startswith(API_ROOT_PREFIXES) or name_matches_identifier(p)}
+        # Every candidate still has to pass a live JSON probe below before
+        # it becomes an Operation, so we don't pre-filter discovered paths
+        # by prefix here — a relative literal pulled from a JS bundle
+        # (e.g. "basket/") is exactly as valid a candidate as "/api/basket"
+        # and live probing is what actually separates real endpoints from
+        # noise, not a naming convention.
+        api_paths = set(all_paths)
         # If nothing at all was linked from the app shell, fall back to the
         # generic API root prefixes themselves as bootstrap probes — this
         # is a convention-level fallback, not an app-specific endpoint list.
         if not api_paths:
             api_paths = set(API_ROOT_PREFIXES)
+        # Bound the candidate set so a large bundle's worth of loosely
+        # matched relative-path literals can't turn discovery into an
+        # unbounded number of live probes; prefer shorter/api-shaped paths.
+        if len(api_paths) > 300:
+            api_paths = set(
+                sorted(api_paths, key=lambda p: (not p.startswith(API_ROOT_PREFIXES), len(p)))[:300]
+            )
 
         logger.info("Step 4: expanding %d discovered paths with id-variants...", len(api_paths))
         expanded_paths: set[str] = set()
