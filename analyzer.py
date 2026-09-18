@@ -28,20 +28,18 @@ IGNORED_FIELDS = frozenset({
 
 @dataclass
 class Finding:
-    """A confirmed BOLA vulnerability finding with full evidence transcript."""
     operation_id: str
-    severity: str             # "High" | "Medium"
+    severity: str
     api_type: str
     method: str
     path_or_query: str
-    evidence: dict            # Full transcript: requests, responses, diff
+    evidence: dict
     reproduction_steps: list[str]
     similarity_score: Optional[float] = None
     field_leakage: list[str] = field(default_factory=list)
 
 
 def _flatten_json(obj: Any, prefix: str = "") -> dict:
-    """Recursively flatten a JSON structure into dot-notation keys."""
     items: dict = {}
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -58,11 +56,6 @@ def _flatten_json(obj: Any, prefix: str = "") -> dict:
 
 
 def _json_similarity(body_a: Any, body_b: Any) -> float:
-    """
-    Structural similarity between two JSON responses.
-    Returns ratio of matching key-value pairs to total unique keys.
-    Ignores timestamp/metadata fields.
-    """
     if body_a is None or body_b is None:
         return 0.0
     flat_a = _flatten_json(body_a)
@@ -78,7 +71,6 @@ def _json_similarity(body_a: Any, body_b: Any) -> float:
 
 
 def _diff_flat(body_a: Any, body_b: Any) -> dict:
-    """Return a dict of keys that differ between the two responses."""
     flat_a = _flatten_json(body_a)
     flat_b = _flatten_json(body_b)
     all_keys = set(flat_a.keys()) | set(flat_b.keys())
@@ -92,10 +84,6 @@ def _diff_flat(body_a: Any, body_b: Any) -> dict:
 
 
 def _extract_gql_selected_fields(ast_node: Optional[DocumentNode]) -> set[str]:
-    """
-    Walk the GraphQL AST and collect all leaf field names in the selection set.
-    Used for field-level comparison in nested queries.
-    """
     fields: set[str] = set()
     if ast_node is None:
         return fields
@@ -119,7 +107,6 @@ def _extract_gql_selected_fields(ast_node: Optional[DocumentNode]) -> set[str]:
 
 
 def _extract_gql_data(response_body: Any, query_name: Optional[str]) -> Any:
-    """Extract the data payload from a GraphQL response."""
     if not isinstance(response_body, dict):
         return response_body
     data = response_body.get("data", {})
@@ -142,6 +129,15 @@ class BOLAAnalyzer:
     data belonging to User B without authorization.
     """
 
+    OWNERSHIP_SIGNAL_FIELDS = frozenset({
+        "email", "username", "password", "phone", "address",
+        "userId", "user_id", "customerId", "customer_id",
+        "orderid", "order_id", "basketId", "basket_id",
+        "cardNumber", "card_number", "cvv", "iban",
+        "dob", "dateOfBirth", "ssn", "passport",
+        "role", "token", "totpSecret",
+    })
+
     def __init__(self, similarity_threshold: float = SIMILARITY_THRESHOLD):
         self.threshold = similarity_threshold
         self.findings: list[Finding] = []
@@ -154,27 +150,17 @@ class BOLAAnalyzer:
     ) -> list[str]:
         op = result.operation
         steps = [
-            f"1. Authenticate as User B and obtain their object identifier.",
-            f"2. Authenticate as User A (attacker session).",
+            "1. Authenticate as User B and obtain their object identifier.",
+            "2. Authenticate as User A (attacker session).",
         ]
         if op.api_type == "rest":
-            steps.append(
-                f"3. Issue {rec_a.method} request to: {rec_a.url}"
-            )
-            steps.append(
-                "4. Include User A's authentication credentials in the Authorization header."
-            )
-            steps.append(
-                f"5. Observe HTTP {rec_a.status_code} response — data belonging to User B is returned."
-            )
+            steps.append(f"3. Issue {rec_a.method} request to: {rec_a.url}")
+            steps.append("4. Include User A's authentication credentials in the Authorization header.")
+            steps.append(f"5. Observe HTTP {rec_a.status_code} response — data belonging to User B is returned.")
         else:
             payload = rec_a.request_body or {}
-            steps.append(
-                f"3. Send GraphQL {op.method} '{op.query_name}' to {rec_a.url}"
-            )
-            steps.append(
-                f"4. Use payload: {json.dumps(payload, indent=2)}"
-            )
+            steps.append(f"3. Send GraphQL {op.method} '{op.query_name}' to {rec_a.url}")
+            steps.append(f"4. Use payload: {json.dumps(payload, indent=2)}")
             steps.append(
                 f"5. Observe HTTP {rec_a.status_code} — GraphQL data node '{op.query_name}' "
                 f"returns User B's object fields."
@@ -182,6 +168,11 @@ class BOLAAnalyzer:
         steps.append("6. Compare response to User B's own authenticated response — data is substantially identical.")
         steps.append("7. Confirm BOLA: User A accessed User B's resource without authorization.")
         return steps
+
+    def _has_ownership_signals(self, body: Any) -> bool:
+        flat = _flatten_json(body)
+        keys_lower = {k.lower().split(".")[-1] for k in flat.keys()}
+        return bool(keys_lower & {f.lower() for f in self.OWNERSHIP_SIGNAL_FIELDS})
 
     def _analyze_rest(self, result: OperationResult) -> Optional[Finding]:
         rec_a = result.response_a
@@ -198,16 +189,27 @@ class BOLAAnalyzer:
         if rec_b.status_code != 200:
             return None
 
+        if not op.object_identifier_extraction_rule:
+            logger.debug("Skipping %s — no object identifier.", op.operation_id)
+            return None
+
         score = _json_similarity(rec_a.response_body, rec_b.response_body)
         logger.debug("REST similarity for %s: %.2f", op.operation_id, score)
 
         if score < self.threshold:
             return None
 
+        if not self._has_ownership_signals(rec_b.response_body):
+            logger.debug(
+                "Skipping %s — response has no user-ownership signals, likely public.",
+                op.operation_id,
+            )
+            return None
+
         diff = _diff_flat(rec_a.response_body, rec_b.response_body)
         severity = "High" if score >= 0.95 else "Medium"
 
-        finding = Finding(
+        return Finding(
             operation_id=op.operation_id,
             severity=severity,
             api_type="rest",
@@ -241,7 +243,6 @@ class BOLAAnalyzer:
             },
             reproduction_steps=self._build_reproduction_steps(result, rec_a, rec_b),
         )
-        return finding
 
     def _analyze_graphql(self, result: OperationResult) -> Optional[Finding]:
         rec_a = result.response_a
@@ -266,14 +267,12 @@ class BOLAAnalyzer:
         if data_a is None or data_b is None:
             return None
 
-        # Field-level diffing guided by AST
         selected_fields = _extract_gql_selected_fields(rec_a.gql_ast)
         flat_a = _flatten_json(data_a)
         flat_b = _flatten_json(data_b)
 
         leaked_fields: list[str] = []
         for fld in selected_fields:
-            # Check if the field key exists in both (with any prefix path)
             matches_a = {k: v for k, v in flat_a.items() if k.endswith(fld) or fld in k}
             matches_b = {k: v for k, v in flat_b.items() if k.endswith(fld) or fld in k}
             for key in set(matches_a) & set(matches_b):
@@ -288,7 +287,7 @@ class BOLAAnalyzer:
         diff = _diff_flat(data_a, data_b)
         severity = "High" if leaked_fields or score >= 0.95 else "Medium"
 
-        finding = Finding(
+        return Finding(
             operation_id=op.operation_id,
             severity=severity,
             api_type="graphql",
@@ -323,7 +322,6 @@ class BOLAAnalyzer:
             },
             reproduction_steps=self._build_reproduction_steps(result, rec_a, rec_b),
         )
-        return finding
 
     def analyze(self, results: list[OperationResult]) -> list[Finding]:
         self.findings = []
